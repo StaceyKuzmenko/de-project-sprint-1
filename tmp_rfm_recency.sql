@@ -1,20 +1,14 @@
 --заполнение таблицы tmp_rfm_recency
 INSERT INTO analysis.tmp_rfm_recency (user_id, recency)
-SELECT final_data_1.user_id AS user_id,
-	   final_data_1.recency_rank AS recency
+SELECT au.id AS user_id,
+	   NTILE(5) OVER (ORDER BY orders_data.last_date ASC NULLS FIRST) AS recency
 FROM (
-    SELECT
-        user_order_ranks.u_id AS user_id,
-  		NTILE(5) OVER (ORDER BY user_order_ranks.order_cnt_rnk) AS recency_rank
-    FROM (
-        SELECT
-            DISTINCT analysis.orders.user_id AS u_id,
-	  		MAX(analysis.orders.order_ts) AS last_data,
-            ROW_NUMBER() OVER (ORDER BY MAX(analysis.orders.order_ts) ASC) AS order_cnt_rnk
-        FROM 
-            analysis.orders
-        WHERE EXTRACT(YEAR FROM analysis.orders.order_ts) >= 2022
-	  	AND analysis.orders.status = 4
-	    GROUP BY analysis.orders.user_id
-    ) AS user_order_ranks) AS final_data_1
-	ORDER BY recency ASC;
+  	SELECT DISTINCT ao.user_id AS user_id,
+    	   MAX(ao.order_ts) AS last_date
+	FROM analysis.orders ao
+  	WHERE ao.status = 4
+	GROUP BY ao.user_id
+) AS orders_data
+RIGHT JOIN analysis.users au ON orders_data.user_id=au.id
+GROUP BY au.id, orders_data.last_date
+ORDER BY recency ASC;

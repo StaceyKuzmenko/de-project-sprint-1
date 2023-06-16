@@ -1,21 +1,14 @@
 --заполнение таблицы tmp_rfm_frequency
 INSERT INTO analysis.tmp_rfm_frequency (user_id, frequency)
-SELECT final_data.user_id AS user_id,
-	   final_data.frequency_rank AS frequency
+SELECT  au.id AS user_id,
+		NTILE(5) OVER (ORDER BY orders_data.count_orders ASC NULLS FIRST) AS frequency
 FROM (
-    SELECT
-        user_order_ranks.u_id AS user_id,
-        NTILE(5) OVER (ORDER BY user_order_ranks.order_cnt_rnk) AS frequency_rank
-    FROM (
-        SELECT
-            DISTINCT analysis.orders.user_id AS u_id, 
-            COUNT(analysis.orders.order_id) AS order_quantity,
-	  		ROW_NUMBER() OVER (ORDER BY COUNT(analysis.orders.order_id) ASC) AS order_cnt_rnk
-        FROM 
-            analysis.orders
-        WHERE EXTRACT(YEAR FROM analysis.orders.order_ts) >= 2022
-	  	AND analysis.orders.status = 4
-	    GROUP BY analysis.orders.user_id 
-	  	ORDER BY order_quantity ASC
-    ) AS user_order_ranks) AS final_data
-	ORDER BY frequency ASC;
+  	SELECT DISTINCT ao.user_id AS user_id,
+    	   COUNT(ao.order_id) AS count_orders
+	FROM analysis.orders ao
+  	WHERE ao.status = 4
+	GROUP BY ao.user_id
+) AS orders_data
+RIGHT JOIN analysis.users au ON orders_data.user_id=au.id
+GROUP BY au.id, orders_data.count_orders
+ORDER BY frequency ASC;

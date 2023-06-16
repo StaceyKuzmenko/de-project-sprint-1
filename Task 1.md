@@ -80,11 +80,6 @@ count(id)''', который написала к каждой из таблиц.
 
 ```SQL
 --Впишите сюда ваш ответ
-DROP VIEW IF EXISTS analysis.orderitems;
-DROP VIEW IF EXISTS analysis.orders;
-DROP VIEW IF EXISTS analysis.orderstatuses;
-DROP VIEW IF EXISTS analysis.products;
-DROP VIEW IF EXISTS analysis.users;
 
 CREATE VIEW analysis.orderitems AS SELECT * FROM production.orderitems;
 CREATE VIEW analysis.orders AS SELECT * FROM production.orders;
@@ -139,79 +134,59 @@ CREATE TABLE analysis.tmp_rfm_monetary_value (
 --Впишите сюда ваш ответ
 --заполнение таблицы tmp_rfm_frequency
 INSERT INTO analysis.tmp_rfm_frequency (user_id, frequency)
-SELECT final_data.user_id AS user_id,
-	   final_data.frequency_rank AS frequency
+SELECT  au.id AS user_id,
+		NTILE(5) OVER (ORDER BY orders_data.count_orders ASC NULLS FIRST) AS frequency
 FROM (
-    SELECT
-        user_order_ranks.u_id AS user_id,
-        NTILE(5) OVER (ORDER BY user_order_ranks.order_cnt_rnk) AS frequency_rank
-    FROM (
-        SELECT
-            DISTINCT analysis.orders.user_id AS u_id, 
-            COUNT(analysis.orders.order_id) AS order_quantity,
-	  		ROW_NUMBER() OVER (ORDER BY COUNT(analysis.orders.order_id) ASC) AS order_cnt_rnk
-        FROM 
-            analysis.orders
-        WHERE EXTRACT(YEAR FROM analysis.orders.order_ts) >= 2022
-	  	AND analysis.orders.status = 4
-	    GROUP BY analysis.orders.user_id 
-	  	ORDER BY order_quantity ASC
-    ) AS user_order_ranks) AS final_data
-	ORDER BY frequency ASC;
+  	SELECT DISTINCT ao.user_id AS user_id,
+    	   COUNT(ao.order_id) AS count_orders
+	FROM analysis.orders ao
+  	WHERE ao.status = 4
+	GROUP BY ao.user_id
+) AS orders_data
+RIGHT JOIN analysis.users au ON orders_data.user_id=au.id
+GROUP BY au.id, orders_data.count_orders
+ORDER BY frequency ASC;
 
 --заполнение таблицы tmp_rfm_recency
 INSERT INTO analysis.tmp_rfm_recency (user_id, recency)
-SELECT final_data_1.user_id AS user_id,
-	   final_data_1.recency_rank AS recency
+SELECT au.id AS user_id,
+	   NTILE(5) OVER (ORDER BY orders_data.last_date ASC NULLS FIRST) AS recency
 FROM (
-    SELECT
-        user_order_ranks.u_id AS user_id,
-  		NTILE(5) OVER (ORDER BY user_order_ranks.order_cnt_rnk) AS recency_rank
-    FROM (
-        SELECT
-            DISTINCT analysis.orders.user_id AS u_id,
-	  		MAX(analysis.orders.order_ts) AS last_data,
-            ROW_NUMBER() OVER (ORDER BY MAX(analysis.orders.order_ts) ASC) AS order_cnt_rnk
-        FROM 
-            analysis.orders
-        WHERE EXTRACT(YEAR FROM analysis.orders.order_ts) >= 2022
-	  	AND analysis.orders.status = 4
-	    GROUP BY analysis.orders.user_id
-    ) AS user_order_ranks) AS final_data_1
-	ORDER BY recency ASC;
+  	SELECT DISTINCT ao.user_id AS user_id,
+    	   MAX(ao.order_ts) AS last_date
+	FROM analysis.orders ao
+  	WHERE ao.status = 4
+	GROUP BY ao.user_id
+) AS orders_data
+RIGHT JOIN analysis.users au ON orders_data.user_id=au.id
+GROUP BY au.id, orders_data.last_date
+ORDER BY recency ASC;
 
 --заполнение таблицы tmp_rfm_monetary_value
 INSERT INTO analysis.tmp_rfm_monetary_value (user_id, monetary_value)
-SELECT final_data_2.user_id AS user_id,
-	   final_data_2.monetary_rank AS monetary_value
+SELECT au.id AS user_id,
+	   NTILE(5) OVER (ORDER BY SUM(orders_data.order_sum) ASC NULLS FIRST) AS monetary_value
 FROM (
-    SELECT
-        user_order_ranks.u_id AS user_id,
-  		NTILE(5) OVER (ORDER BY user_order_ranks.order_cnt_rnk) AS monetary_rank
-    FROM (
-        SELECT
-            DISTINCT analysis.orders.user_id AS u_id,
-	  		SUM(analysis.orders.cost) AS order_sum,
-            ROW_NUMBER() OVER (ORDER BY SUM(analysis.orders.cost) ASC) AS order_cnt_rnk
-        FROM 
-            analysis.orders
-        WHERE EXTRACT(YEAR FROM analysis.orders.order_ts) >= 2022
-	  	AND analysis.orders.status = 4
-	    GROUP BY analysis.orders.user_id
-    ) AS user_order_ranks) AS final_data_2
-	ORDER BY monetary_value ASC;
+  	SELECT DISTINCT ao.user_id AS user_id,
+    	   SUM(ao.cost) AS order_sum
+	FROM analysis.orders ao
+  	WHERE ao.status = 4
+	GROUP BY ao.user_id
+) AS orders_data
+RIGHT JOIN analysis.users au ON orders_data.user_id=au.id
+GROUP BY au.id, orders_data.order_sum
+ORDER BY monetary_value ASC;
 	
 --заполнение таблицы dm_rfm_segments
 INSERT INTO analysis.dm_rfm_segments (user_id, recency, frequency, monetary_value)
-SELECT DISTINCT o.user_id AS user_id,
+SELECT DISTINCT trr.user_id AS user_id,
 	   trr.recency AS recency,
 	   trf.frequency AS frequency,
 	   trmv.monetary_value AS monetary_value
-FROM analysis.orders o
-LEFT JOIN tmp_rfm_recency trr ON o.user_id = trr.user_id
-LEFT JOIN tmp_rfm_frequency trf ON o.user_id = trf.user_id	
-LEFT JOIN tmp_rfm_monetary_value trmv ON o.user_id = trmv.user_id
-ORDER BY user_id
+FROM analysis.tmp_rfm_recency trr
+LEFT JOIN analysis.tmp_rfm_frequency trf ON trr.user_id = trf.user_id	
+LEFT JOIN analysis.tmp_rfm_monetary_value trmv ON trr.user_id = trmv.user_id
+ORDER BY trr.user_id
 LIMIT 10;
 
 
